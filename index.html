@@ -1,0 +1,621 @@
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>星际穿越 - H5横屏游戏</title>
+    <style>
+        /* 全局样式重置 */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            touch-action: none; /* 禁止默认触摸行为，防止滚动 */
+        }
+
+        body {
+            background-color: #0f0c29;
+            overflow: hidden;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: white;
+        }
+
+        /* 游戏容器 */
+        #gameContainer {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: linear-gradient(to bottom, #0f0c29, #302b63, #24243e);
+        }
+
+        canvas {
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.3);
+            border-radius: 4px;
+        }
+
+        /* UI 层 */
+        #uiLayer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 20px;
+        }
+
+        .score-board {
+            font-size: 24px;
+            font-weight: bold;
+            text-shadow: 0 0 5px #00ffff;
+        }
+
+        /* 竖屏提示遮罩 */
+        #portraitWarning {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            z-index: 9999;
+            display: none; /* 默认隐藏，JS控制显示 */
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            padding: 20px;
+        }
+
+        #portraitWarning h2 {
+            color: #ff4444;
+            margin-bottom: 20px;
+            font-size: 24px;
+        }
+
+        #portraitWarning p {
+            color: #ccc;
+            font-size: 16px;
+        }
+
+        #portraitWarning .icon {
+            font-size: 48px;
+            margin-bottom: 20px;
+            animation: rotatePhone 2s infinite ease-in-out;
+        }
+
+        @keyframes rotatePhone {
+            0% { transform: rotate(0deg); }
+            50% { transform: rotate(90deg); }
+            100% { transform: rotate(0deg); }
+        }
+
+        /* 开始/结束 屏幕 */
+        .screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            pointer-events: auto;
+            backdrop-filter: blur(5px);
+            z-index: 10;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        h1 {
+            color: #00ffff;
+            text-transform: uppercase;
+            letter-spacing: 3px;
+            margin-bottom: 10px;
+            text-shadow: 0 0 10px #00ffff;
+        }
+
+        button {
+            background: linear-gradient(45deg, #ff00cc, #333399);
+            border: none;
+            padding: 15px 40px;
+            color: white;
+            font-size: 18px;
+            border-radius: 30px;
+            cursor: pointer;
+            margin-top: 20px;
+            box-shadow: 0 4px 15px rgba(255, 0, 204, 0.4);
+            transition: transform 0.2s;
+        }
+
+        button:active {
+            transform: scale(0.95);
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 竖屏强制提示 -->
+    <div id="portraitWarning">
+        <div class="icon">📱</div>
+        <h2>请旋转您的设备</h2>
+        <p>为了最佳游戏体验，请使用横屏模式</p>
+    </div>
+
+    <div id="gameContainer">
+        <canvas id="gameCanvas"></canvas>
+        
+        <!-- UI 层 -->
+        <div id="uiLayer">
+            <div class="score-board">得分: <span id="scoreDisplay">0</span></div>
+            <div style="text-align: right; font-size: 14px; color: #aaa;">最高分: <span id="highScoreDisplay">0</span></div>
+        </div>
+
+        <!-- 开始屏幕 -->
+        <div id="startScreen" class="screen">
+            <h1>星际穿越</h1>
+            <p style="color: #ccc; margin-bottom: 20px;">拖动飞船躲避陨石，收集能量</p>
+            <button id="startBtn">开始游戏</button>
+        </div>
+
+        <!-- 结束屏幕 -->
+        <div id="gameOverScreen" class="screen hidden">
+            <h1 style="color: #ff4444;">游戏结束</h1>
+            <p style="color: #fff; margin-bottom: 10px;">最终得分: <span id="finalScore">0</span></p>
+            <button id="restartBtn">再玩一次</button>
+        </div>
+    </div>
+
+<script>
+    /**
+     * 游戏配置与状态管理
+     */
+    const config = {
+        playerSpeed: 0.12, // 玩家跟随平滑系数
+        obstacleSpeedBase: 4,
+        obstacleSpawnRate: 50, // 帧数间隔
+        colors: {
+            player: '#00ffff',
+            obstacle: '#ff4444',
+            powerUp: '#44ff44',
+            star: '#ffffff'
+        }
+    };
+
+    const state = {
+        isPlaying: false,
+        score: 0,
+        highScore: localStorage.getItem('h5GameHighScore') || 0,
+        frames: 0,
+        width: 0,
+        height: 0,
+        mouseX: 0,
+        mouseY: 0,
+        isPortrait: false
+    };
+
+    // DOM 元素
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('scoreDisplay');
+    const highScoreEl = document.getElementById('highScoreDisplay');
+    const finalScoreEl = document.getElementById('finalScore');
+    const startScreen = document.getElementById('startScreen');
+    const gameOverScreen = document.getElementById('gameOverScreen');
+    const portraitWarning = document.getElementById('portraitWarning');
+    const startBtn = document.getElementById('startBtn');
+    const restartBtn = document.getElementById('restartBtn');
+
+    // 游戏实体
+    let player;
+    let obstacles = [];
+    let particles = [];
+    let powerUps = [];
+    let stars = [];
+
+    /**
+     * 类定义
+     */
+    class Player {
+        constructor(x, y) {
+            this.x = x;
+            this.y = y;
+            this.radius = 15;
+            this.targetX = x;
+            this.targetY = y;
+        }
+
+        update() {
+            // 平滑移动算法
+            this.x += (this.targetX - this.x) * config.playerSpeed;
+            this.y += (this.targetY - this.y) * config.playerSpeed;
+
+            // 边界限制
+            if (this.x < this.radius) this.x = this.radius;
+            if (this.x > state.width - this.radius) this.x = state.width - this.radius;
+            if (this.y < this.radius) this.y = this.radius;
+            if (this.y > state.height - this.radius) this.y = state.height - this.radius;
+        }
+
+        draw() {
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+            ctx.fillStyle = config.colors.player;
+            ctx.fill();
+            
+            // 发光效果
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = config.colors.player;
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            ctx.closePath();
+
+            // 尾焰效果
+            ctx.beginPath();
+            ctx.moveTo(this.x - 10, this.y);
+            ctx.lineTo(this.x - 25, this.y - 5);
+            ctx.lineTo(this.x - 25, this.y + 5);
+            ctx.fillStyle = 'rgba(0, 255, 255, 0.5)';
+            ctx.fill();
+            ctx.closePath();
+        }
+    }
+
+    class Obstacle {
+        constructor() {
+            this.radius = Math.random() * 15 + 10;
+            this.x = Math.random() * (state.width - this.radius * 2) + this.radius;
+            this.y = -this.radius;
+            this.speed = config.obstacleSpeedBase + Math.random() * 2 + (state.score * 0.02);
+            this.color = config.colors.obstacle;
+            this.rotation = 0;
+            this.rotationSpeed = (Math.random() - 0.5) * 0.1;
+        }
+
+        update() {
+            this.y += this.speed;
+            this.rotation += this.rotationSpeed;
+        }
+
+        draw() {
+            ctx.save();
+            ctx.translate(this.x, this.y);
+            ctx.rotate(this.rotation);
+            
+            ctx.beginPath();
+            // 绘制六边形陨石
+            for (let i = 0; i < 6; i++) {
+                const angle = (i / 6) * Math.PI * 2;
+                const x = Math.cos(angle) * this.radius;
+                const y = Math.sin(angle) * this.radius;
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            }
+            ctx.closePath();
+            ctx.fillStyle = this.color;
+            ctx.fill();
+            ctx.restore();
+        }
+    }
+
+    class PowerUp {
+        constructor() {
+            this.radius = 10;
+            this.x = Math.random() * (state.width - this.radius * 2) + this.radius;
+            this.y = -this.radius;
+            this.speed = 3;
+            this.color = config.colors.powerUp;
+            this.pulse = 0;
+        }
+
+        update() {
+            this.y += this.speed;
+            this.pulse += 0.1;
+        }
+
+        draw() {
+            const scale = 1 + Math.sin(this.pulse) * 0.2;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.radius * scale, 0, Math.PI * 2);
+            ctx.fillStyle = this.color;
+            ctx.fill();
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = this.color;
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            ctx.closePath();
+        }
+    }
+
+    class Particle {
+        constructor(x, y, color) {
+            this.x = x;
+            this.y = y;
+            this.vx = (Math.random() - 0.5) * 5;
+            this.vy = (Math.random() - 0.5) * 5;
+            this.life = 1.0;
+            this.color = color;
+        }
+
+        update() {
+            this.x += this.vx;
+            this.y += this.vy;
+            this.life -= 0.03;
+        }
+
+        draw() {
+            ctx.globalAlpha = this.life;
+            ctx.fillStyle = this.color;
+            ctx.fillRect(this.x, this.y, 3, 3);
+            ctx.globalAlpha = 1.0;
+        }
+    }
+
+    class Star {
+        constructor() {
+            this.x = Math.random() * state.width;
+            this.y = Math.random() * state.height;
+            this.size = Math.random() * 2;
+            this.speed = Math.random() * 0.5 + 0.1;
+        }
+
+        update() {
+            this.y += this.speed + (state.score * 0.001); // 背景随速度加快
+            if (this.y > state.height) {
+                this.y = 0;
+                this.x = Math.random() * state.width;
+            }
+        }
+
+        draw() {
+            ctx.fillStyle = config.colors.star;
+            ctx.globalAlpha = Math.random() * 0.5 + 0.3;
+            ctx.fillRect(this.x, this.y, this.size, this.size);
+            ctx.globalAlpha = 1.0;
+        }
+    }
+
+    /**
+     * 核心游戏逻辑
+     */
+    function init() {
+        resize();
+        window.addEventListener('resize', handleResize);
+        window.addEventListener('orientationchange', checkOrientation);
+        
+        // 输入处理
+        canvas.addEventListener('mousemove', handleInput);
+        canvas.addEventListener('touchmove', handleTouch, { passive: false });
+        
+        startBtn.addEventListener('click', startGame);
+        restartBtn.addEventListener('click', startGame);
+
+        highScoreEl.textContent = state.highScore;
+        
+        // 初始化背景星星
+        for(let i=0; i<50; i++) {
+            stars.push(new Star());
+        }
+
+        checkOrientation();
+        requestAnimationFrame(gameLoop);
+    }
+
+    function checkOrientation() {
+        // 检测是否为竖屏
+        if (window.innerHeight > window.innerWidth) {
+            state.isPortrait = true;
+            portraitWarning.style.display = 'flex';
+            if(state.isPlaying) {
+                // 如果游戏中突然变竖屏，暂停或提示
+            }
+        } else {
+            state.isPortrait = false;
+            portraitWarning.style.display = 'none';
+            resize();
+        }
+    }
+
+    function handleResize() {
+        // 防抖处理
+        clearTimeout(window.resizeTimer);
+        window.resizeTimer = setTimeout(() => {
+            checkOrientation();
+            if (!state.isPortrait) {
+                resize();
+            }
+        }, 100);
+    }
+
+    function resize() {
+        // 获取容器尺寸
+        const container = document.getElementById('gameContainer');
+        state.width = container.clientWidth;
+        state.height = container.clientHeight;
+        
+        canvas.width = state.width;
+        canvas.height = state.height;
+        
+        // 如果游戏中调整大小，重置玩家位置到安全区域
+        if (player) {
+            player.x = Math.min(player.x, state.width - 20);
+            player.y = Math.min(player.y, state.height - 20);
+        }
+    }
+
+    function handleInput(e) {
+        if (!state.isPlaying || state.isPortrait) return;
+        const rect = canvas.getBoundingClientRect();
+        state.mouseX = e.clientX - rect.left;
+        state.mouseY = e.clientY - rect.top;
+        
+        if (player) {
+            player.targetX = state.mouseX;
+            player.targetY = state.mouseY;
+        }
+    }
+
+    function handleTouch(e) {
+        if (!state.isPlaying || state.isPortrait) return;
+        e.preventDefault();
+        const rect = canvas.getBoundingClientRect();
+        const touch = e.touches[0];
+        state.mouseX = touch.clientX - rect.left;
+        state.mouseY = touch.clientY - rect.top;
+        
+        if (player) {
+            player.targetX = state.mouseX;
+            player.targetY = state.mouseY;
+        }
+    }
+
+    function startGame() {
+        if (state.isPortrait) {
+            alert("请旋转设备至横屏模式");
+            return;
+        }
+
+        state.isPlaying = true;
+        state.score = 0;
+        state.frames = 0;
+        scoreEl.textContent = '0';
+        
+        obstacles = [];
+        particles = [];
+        powerUps = [];
+        
+        player = new Player(state.width / 2, state.height - 100);
+        player.targetX = player.x;
+        player.targetY = player.y;
+        
+        startScreen.classList.add('hidden');
+        gameOverScreen.classList.add('hidden');
+    }
+
+    function gameOver() {
+        state.isPlaying = false;
+        
+        if (state.score > state.highScore) {
+            state.highScore = state.score;
+            localStorage.setItem('h5GameHighScore', state.highScore);
+            highScoreEl.textContent = state.highScore;
+        }
+        
+        finalScoreEl.textContent = state.score;
+        gameOverScreen.classList.remove('hidden');
+    }
+
+    function createExplosion(x, y, color, count = 10) {
+        for (let i = 0; i < count; i++) {
+            particles.push(new Particle(x, y, color));
+        }
+    }
+
+    function checkCollision(circle1, circle2) {
+        const dx = circle1.x - circle2.x;
+        const dy = circle1.y - circle2.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        return distance < (circle1.radius + circle2.radius);
+    }
+
+    function gameLoop() {
+        if (state.isPortrait) {
+            requestAnimationFrame(gameLoop);
+            return;
+        }
+
+        ctx.clearRect(0, 0, state.width, state.height);
+
+        // 绘制背景星星
+        stars.forEach(star => {
+            star.update();
+            star.draw();
+        });
+
+        if (state.isPlaying) {
+            state.frames++;
+
+            // 生成障碍物
+            if (state.frames % config.obstacleSpawnRate === 0) {
+                obstacles.push(new Obstacle());
+                if (config.obstacleSpawnRate > 20 && state.score % 100 === 0) {
+                    config.obstacleSpawnRate -= 2;
+                }
+            }
+
+            // 生成道具
+            if (state.frames % 200 === 0 && Math.random() < 0.3) {
+                powerUps.push(new PowerUp());
+            }
+
+            // 更新和绘制玩家
+            player.update();
+            player.draw();
+
+            // 更新和绘制障碍物
+            for (let i = obstacles.length - 1; i >= 0; i--) {
+                const obs = obstacles[i];
+                obs.update();
+                obs.draw();
+
+                if (checkCollision(player, obs)) {
+                    createExplosion(player.x, player.y, config.colors.player, 20);
+                    gameOver();
+                    requestAnimationFrame(gameLoop);
+                    return;
+                }
+
+                if (obs.y > state.height + obs.radius) {
+                    obstacles.splice(i, 1);
+                    state.score += 10;
+                    scoreEl.textContent = state.score;
+                }
+            }
+
+            // 更新和绘制道具
+            for (let i = powerUps.length - 1; i >= 0; i--) {
+                const pup = powerUps[i];
+                pup.update();
+                pup.draw();
+
+                if (checkCollision(player, pup)) {
+                    state.score += 50;
+                    scoreEl.textContent = state.score;
+                    createExplosion(pup.x, pup.y, config.colors.powerUp, 15);
+                    powerUps.splice(i, 1);
+                } else if (pup.y > state.height + pup.radius) {
+                    powerUps.splice(i, 1);
+                }
+            }
+        }
+
+        // 更新和绘制粒子 (即使游戏结束也要播放完爆炸效果)
+        for (let i = particles.length - 1; i >= 0; i--) {
+            const p = particles[i];
+            p.update();
+            p.draw();
+            if (p.life <= 0) {
+                particles.splice(i, 1);
+            }
+        }
+
+        requestAnimationFrame(gameLoop);
+    }
+
+    // 启动
+    init();
+
+</script>
+</body>
+</html>
