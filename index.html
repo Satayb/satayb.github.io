@@ -1,0 +1,1055 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#0f0c29">
+    <meta name="screen-orientation" content="portrait">
+    <meta name="x5-orientation" content="portrait">
+    <meta name="full-screen" content="yes">
+    <title>星际穿越 - 竖屏闯关版</title>
+    <style>
+        /* 全局样式重置 */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            touch-action: none; /* 禁止默认触摸行为，防止滚动 */
+            -webkit-tap-highlight-color: transparent;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #0f0c29;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+            color: #fff;
+            position: fixed; /* iOS 防止橡皮筋滚动 */
+        }
+
+        /* 游戏容器：竖屏全屏 */
+        #gameContainer {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            height: 100dvh; /* 动态视口高度，兼容移动端地址栏 */
+            overflow: hidden;
+            background: linear-gradient(to bottom, #0f0c29, #302b63, #24243e);
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* UI 层 */
+        #uiLayer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: calc(14px + env(safe-area-inset-top)) 16px calc(14px + env(safe-area-inset-bottom));
+        }
+
+        .top-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            font-weight: bold;
+        }
+
+        .score-board {
+            font-size: 22px;
+            text-shadow: 0 0 8px #00ffff;
+        }
+
+        .score-board .num {
+            color: #00ffff;
+        }
+
+        .best-board {
+            font-size: 13px;
+            color: #aaa;
+            font-weight: normal;
+            text-align: right;
+            line-height: 1.6;
+        }
+
+        /* 关卡信息栏 */
+        .level-bar {
+            position: absolute;
+            top: calc(52px + env(safe-area-inset-top));
+            left: 16px;
+            right: 16px;
+            pointer-events: none;
+        }
+
+        .level-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            font-size: 12px;
+            color: #b9b9d6;
+            letter-spacing: 1px;
+            margin-bottom: 6px;
+        }
+
+        .level-row .lv {
+            font-size: 15px;
+            font-weight: bold;
+            color: #ffd166;
+            text-shadow: 0 0 8px rgba(255, 209, 102, 0.6);
+        }
+
+        .level-row .goal b {
+            color: #00ffff;
+        }
+
+        /* 通关进度条 */
+        .progress-track {
+            width: 100%;
+            height: 5px;
+            border-radius: 3px;
+            background: rgba(255, 255, 255, 0.14);
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            width: 0%;
+            border-radius: 3px;
+            background: linear-gradient(90deg, #00ffff, #7b5cff);
+            box-shadow: 0 0 10px rgba(0, 255, 255, 0.7);
+            transition: width 0.18s linear;
+        }
+
+        /* 关卡提示浮层 */
+        #levelToast {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) scale(0.85);
+            z-index: 30;
+            pointer-events: none;
+            text-align: center;
+            opacity: 0;
+            transition: opacity 0.25s ease, transform 0.25s ease;
+        }
+
+        #levelToast.show {
+            opacity: 1;
+            transform: translate(-50%, -50%) scale(1);
+        }
+
+        #levelToast .toast-title {
+            font-size: 30px;
+            font-weight: bold;
+            letter-spacing: 3px;
+            color: #00ffff;
+            text-shadow: 0 0 18px #00ffff;
+            margin-bottom: 12px;
+        }
+
+        #levelToast .toast-sub {
+            font-size: 16px;
+            color: #ffe9a8;
+            letter-spacing: 1px;
+            text-shadow: 0 0 10px rgba(255, 209, 102, 0.7);
+        }
+
+        /* 横屏提示遮罩（竖屏游戏检测到横屏时显示） */
+        #landscapeWarning {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            z-index: 9999;
+            display: none; /* 默认隐藏，JS 控制显示 */
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            padding: 24px;
+        }
+
+        #landscapeWarning h2 {
+            color: #00ffff;
+            margin-bottom: 14px;
+            font-size: 22px;
+        }
+
+        #landscapeWarning p {
+            color: #ccc;
+            font-size: 15px;
+        }
+
+        #landscapeWarning .icon {
+            font-size: 52px;
+            margin-bottom: 20px;
+            animation: rotatePhone 2s infinite ease-in-out;
+        }
+
+        @keyframes rotatePhone {
+            0% { transform: rotate(0deg); }
+            50% { transform: rotate(-90deg); }
+            100% { transform: rotate(0deg); }
+        }
+
+        /* 开始 / 结束 / 通关 屏幕 */
+        .screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.82);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            pointer-events: auto;
+            -webkit-backdrop-filter: blur(6px);
+            backdrop-filter: blur(6px);
+            z-index: 10;
+            text-align: center;
+            padding: 24px;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        .screen h1 {
+            color: #00ffff;
+            letter-spacing: 4px;
+            margin-bottom: 16px;
+            font-size: 34px;
+            text-shadow: 0 0 14px #00ffff;
+        }
+
+        .screen h1.over {
+            color: #ff4444;
+            text-shadow: 0 0 14px #ff4444;
+        }
+
+        .screen h1.win {
+            color: #ffd166;
+            text-shadow: 0 0 20px #ffd166;
+        }
+
+        .screen .tip {
+            color: #bbb;
+            font-size: 15px;
+            line-height: 1.9;
+            margin-bottom: 28px;
+        }
+
+        .screen .final {
+            color: #fff;
+            font-size: 17px;
+            margin-bottom: 10px;
+        }
+
+        .screen .final b {
+            color: #00ffff;
+            font-size: 30px;
+            margin-left: 6px;
+            text-shadow: 0 0 10px #00ffff;
+        }
+
+        .screen .stage-info {
+            color: #ffd166;
+            font-size: 16px;
+            margin-bottom: 26px;
+            letter-spacing: 1px;
+        }
+
+        /* 关卡列表（开始页展示） */
+        .level-list {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 8px;
+            max-width: 320px;
+            margin: 0 auto 26px;
+        }
+
+        .level-chip {
+            font-size: 12px;
+            color: #cfcfe8;
+            border: 1px solid rgba(0, 255, 255, 0.35);
+            border-radius: 14px;
+            padding: 4px 10px;
+            background: rgba(0, 255, 255, 0.06);
+        }
+
+        button {
+            background: linear-gradient(45deg, #ff00cc, #333399);
+            border: none;
+            padding: 16px 0;
+            width: 68%;
+            max-width: 300px;
+            color: #fff;
+            font-size: 19px;
+            font-weight: bold;
+            letter-spacing: 2px;
+            border-radius: 32px;
+            box-shadow: 0 6px 20px rgba(255, 0, 204, 0.45);
+            transition: transform 0.15s;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+
+        button:active {
+            transform: scale(0.95);
+        }
+
+        /* 底部操作提示 */
+        .hint-bottom {
+            align-self: center;
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.35);
+            letter-spacing: 1px;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 横屏强制提示 -->
+    <div id="landscapeWarning">
+        <div class="icon">📱</div>
+        <h2>请旋转至竖屏</h2>
+        <p>本游戏为竖屏体验，请竖着握持手机</p>
+    </div>
+
+    <div id="gameContainer">
+        <canvas id="gameCanvas"></canvas>
+
+        <!-- UI 层 -->
+        <div id="uiLayer">
+            <div class="top-bar">
+                <div class="score-board">得分 <span class="num" id="scoreDisplay">0</span></div>
+                <div class="best-board">最高分<br><span id="highScoreDisplay">0</span></div>
+            </div>
+            <div class="hint-bottom">按住屏幕拖动飞船</div>
+        </div>
+
+        <!-- 关卡进度 -->
+        <div class="level-bar">
+            <div class="level-row">
+                <span class="lv" id="levelDisplay">第 1 关</span>
+                <span class="goal">目标 <b id="goalDisplay">100</b> 分</span>
+            </div>
+            <div class="progress-track">
+                <div class="progress-fill" id="progressFill"></div>
+            </div>
+        </div>
+
+        <!-- 过关提示浮层 -->
+        <div id="levelToast">
+            <div class="toast-title" id="toastTitle">恭喜过关！</div>
+            <div class="toast-sub" id="toastSub">即将进入第 2 关</div>
+        </div>
+
+        <!-- 开始屏幕 -->
+        <div id="startScreen" class="screen">
+            <h1>星际穿越</h1>
+            <p class="tip">按住屏幕拖动飞船<br>躲避陨石，收集绿色能量球<br>累计得分达标即可过关</p>
+            <div class="level-list" id="levelList"></div>
+            <button id="startBtn">开始游戏</button>
+        </div>
+
+        <!-- 失败屏幕 -->
+        <div id="gameOverScreen" class="screen hidden">
+            <h1 class="over">游戏结束</h1>
+            <p class="final">最终得分<b id="finalScore">0</b></p>
+            <p class="stage-info" id="overStage">抵达第 1 关</p>
+            <button id="restartBtn">再玩一次</button>
+        </div>
+
+        <!-- 通关胜利屏幕 -->
+        <div id="winScreen" class="screen hidden">
+            <h1 class="win">通关胜利！</h1>
+            <p class="final">总得分<b id="winScore">0</b></p>
+            <p class="stage-info">你已征服全部 10 个关卡</p>
+            <button id="winRestartBtn">再玩一次</button>
+        </div>
+    </div>
+
+<script>
+    /**
+     * 竖屏闯关版《星际穿越》
+     * 固定 10 关，累计得分达到目标即可过关，每过一关自动升一级，难度递增。
+     * 第 10 关通过即通关胜利。
+     */
+
+    // 关卡表：目标分（累计得分）、陨石生成帧间隔（越小越密）、陨石基础速度、同屏最大同批生成数
+    const LEVELS = [
+        { goal: 100,  spawnRate: 52, speed: 3.0, batch: 1 }, // 第 1 关
+        { goal: 200,  spawnRate: 48, speed: 3.2, batch: 1 }, // 第 2 关
+        { goal: 350,  spawnRate: 44, speed: 3.5, batch: 1 }, // 第 3 关
+        { goal: 500,  spawnRate: 40, speed: 3.8, batch: 2 }, // 第 4 关
+        { goal: 700,  spawnRate: 36, speed: 4.1, batch: 2 }, // 第 5 关
+        { goal: 950,  spawnRate: 32, speed: 4.4, batch: 2 }, // 第 6 关
+        { goal: 1200, spawnRate: 29, speed: 4.8, batch: 3 }, // 第 7 关
+        { goal: 1500, spawnRate: 26, speed: 5.2, batch: 3 }, // 第 8 关
+        { goal: 1900, spawnRate: 23, speed: 5.6, batch: 3 }, // 第 9 关
+        { goal: 2400, spawnRate: 20, speed: 6.0, batch: 4 }  // 第 10 关
+    ];
+    const TOTAL_LEVELS = LEVELS.length;
+
+    const config = {
+        playerSpeed: 0.18,             // 玩家跟随手指的平滑系数
+        followOffsetY: -60,            // 手指与飞船的竖直偏移，避免手指挡住飞船
+        powerUpChance: 0.35,
+        colors: {
+            player: '#00ffff',
+            obstacle: '#ff4444',
+            powerUp: '#44ff44',
+            star: '#ffffff'
+        }
+    };
+
+    const state = {
+        isPlaying: false,
+        isPaused: false,          // 过关提示期间暂停玩法
+        score: 0,
+        level: 1,                 // 当前关卡（1 起）
+        highScore: Number(localStorage.getItem('starTrekStageHighScore')) || 0,
+        frames: 0,
+        width: 0,
+        height: 0,
+        isLandscape: false
+    };
+
+    // 当前关卡参数（从 LEVELS 同步）
+    let curLevel = LEVELS[0];
+    let spawnRate = LEVELS[0].spawnRate;
+
+    // DOM 元素
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const container = document.getElementById('gameContainer');
+    const scoreEl = document.getElementById('scoreDisplay');
+    const highScoreEl = document.getElementById('highScoreDisplay');
+    const finalScoreEl = document.getElementById('finalScore');
+    const overStageEl = document.getElementById('overStage');
+    const winScoreEl = document.getElementById('winScore');
+    const levelEl = document.getElementById('levelDisplay');
+    const goalEl = document.getElementById('goalDisplay');
+    const progressFill = document.getElementById('progressFill');
+    const levelToast = document.getElementById('levelToast');
+    const toastTitle = document.getElementById('toastTitle');
+    const toastSub = document.getElementById('toastSub');
+    const levelList = document.getElementById('levelList');
+    const startScreen = document.getElementById('startScreen');
+    const gameOverScreen = document.getElementById('gameOverScreen');
+    const winScreen = document.getElementById('winScreen');
+    const landscapeWarning = document.getElementById('landscapeWarning');
+    const startBtn = document.getElementById('startBtn');
+    const restartBtn = document.getElementById('restartBtn');
+    const winRestartBtn = document.getElementById('winRestartBtn');
+
+    // 游戏实体
+    let player = null;
+    let obstacles = [];
+    let particles = [];
+    let powerUps = [];
+    let stars = [];
+
+    /* ---------------- 实体类 ---------------- */
+
+    class Player {
+        constructor(x, y) {
+            this.x = x;
+            this.y = y;
+            this.radius = Math.max(13, Math.min(state.width, state.height) * 0.028);
+            this.targetX = x;
+            this.targetY = y;
+            this.tilt = 0;              // 机身倾斜角，随水平移动变化
+            this.prevX = x;
+            this.flameSeed = Math.random() * 100;
+        }
+
+        update() {
+            this.prevX = this.x;
+            this.x += (this.targetX - this.x) * config.playerSpeed;
+            this.y += (this.targetY - this.y) * config.playerSpeed;
+
+            // 边界限制
+            const r = this.radius;
+            if (this.x < r) this.x = r;
+            if (this.x > state.width - r) this.x = state.width - r;
+            if (this.y < r) this.y = r;
+            if (this.y > state.height - r) this.y = state.height - r;
+
+            // 根据水平位移计算倾斜，形成舵面转向感
+            const vx = this.x - this.prevX;
+            const targetTilt = Math.max(-0.5, Math.min(0.5, vx * 0.06));
+            this.tilt += (targetTilt - this.tilt) * 0.15;
+        }
+
+        draw() {
+            const r = this.radius;
+            ctx.save();
+            ctx.translate(this.x, this.y);
+
+            // 尾焰（画在机身下方，随帧闪烁）
+            const flick = 0.75 + Math.sin((performance.now() / 90) + this.flameSeed) * 0.25;
+            const flameLen = r * 1.9 * flick;
+            const flameGrad = ctx.createLinearGradient(0, r * 0.6, 0, r * 0.6 + flameLen);
+            flameGrad.addColorStop(0, 'rgba(0, 255, 255, 0.95)');
+            flameGrad.addColorStop(0.45, 'rgba(123, 92, 255, 0.75)');
+            flameGrad.addColorStop(1, 'rgba(0, 255, 255, 0)');
+            ctx.beginPath();
+            ctx.moveTo(-r * 0.5, r * 0.55);
+            ctx.lineTo(r * 0.5, r * 0.55);
+            ctx.lineTo(0, r * 0.55 + flameLen);
+            ctx.closePath();
+            ctx.fillStyle = flameGrad;
+            ctx.fill();
+
+            // 机身倾斜
+            ctx.rotate(this.tilt);
+
+            // 机翼（三角翼）
+            ctx.beginPath();
+            ctx.moveTo(-r * 1.35, r * 0.45);
+            ctx.lineTo(-r * 0.35, -r * 0.15);
+            ctx.lineTo(-r * 0.35, r * 0.55);
+            ctx.closePath();
+            ctx.moveTo(r * 1.35, r * 0.45);
+            ctx.lineTo(r * 0.35, -r * 0.15);
+            ctx.lineTo(r * 0.35, r * 0.55);
+            ctx.closePath();
+            ctx.fillStyle = 'rgba(0, 200, 230, 0.85)';
+            ctx.shadowBlur = 12;
+            ctx.shadowColor = config.colors.player;
+            ctx.fill();
+            ctx.shadowBlur = 0;
+
+            // 船体主体（尖头航天飞船）
+            ctx.beginPath();
+            ctx.moveTo(0, -r * 1.75);                 // 机头
+            ctx.lineTo(r * 0.62, -r * 0.1);           // 右侧肩
+            ctx.lineTo(r * 0.72, r * 0.75);           // 右侧尾
+            ctx.lineTo(-r * 0.72, r * 0.75);          // 左侧尾
+            ctx.lineTo(-r * 0.62, -r * 0.1);          // 左侧肩
+            ctx.closePath();
+            const bodyGrad = ctx.createLinearGradient(0, -r * 1.75, 0, r * 0.75);
+            bodyGrad.addColorStop(0, '#e8ffff');
+            bodyGrad.addColorStop(0.45, '#5fd8ff');
+            bodyGrad.addColorStop(1, '#1b6fb5');
+            ctx.fillStyle = bodyGrad;
+            ctx.shadowBlur = 16;
+            ctx.shadowColor = config.colors.player;
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            ctx.lineWidth = 1;
+            ctx.strokeStyle = 'rgba(255,255,255,0.75)';
+            ctx.stroke();
+
+            // 座舱窗
+            ctx.beginPath();
+            ctx.ellipse(0, -r * 0.55, r * 0.26, r * 0.45, 0, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(10, 40, 70, 0.9)';
+            ctx.fill();
+            ctx.beginPath();
+            ctx.ellipse(-r * 0.07, -r * 0.7, r * 0.09, r * 0.16, 0, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(255,255,255,0.75)';
+            ctx.fill();
+
+            ctx.restore();
+        }
+    }
+
+    class Obstacle {
+        constructor() {
+            this.radius = Math.random() * (state.width * 0.045) + state.width * 0.032;
+            this.x = Math.random() * (state.width - this.radius * 2) + this.radius;
+            this.y = -this.radius;
+            this.speed = curLevel.speed + Math.random() * 1.6;
+            this.rotation = Math.random() * Math.PI;
+            this.rotationSpeed = (Math.random() - 0.5) * 0.08;
+            // 预生成不规则顶点，避免逐帧抖动
+            this.verts = [];
+            const sides = 6;
+            for (let i = 0; i < sides; i++) {
+                this.verts.push({
+                    angle: (i / sides) * Math.PI * 2,
+                    r: this.radius * (0.8 + Math.random() * 0.4)
+                });
+            }
+        }
+
+        update() {
+            this.y += this.speed;
+            this.rotation += this.rotationSpeed;
+        }
+
+        draw() {
+            ctx.save();
+            ctx.translate(this.x, this.y);
+            ctx.rotate(this.rotation);
+
+            ctx.beginPath();
+            this.verts.forEach((v, i) => {
+                const px = Math.cos(v.angle) * v.r;
+                const py = Math.sin(v.angle) * v.r;
+                if (i === 0) ctx.moveTo(px, py);
+                else ctx.lineTo(px, py);
+            });
+            ctx.closePath();
+            ctx.fillStyle = config.colors.obstacle;
+            ctx.shadowBlur = 12;
+            ctx.shadowColor = config.colors.obstacle;
+            ctx.fill();
+            ctx.shadowBlur = 0;
+
+            // 内部高光
+            ctx.beginPath();
+            ctx.arc(-this.radius * 0.25, -this.radius * 0.25, this.radius * 0.22, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(255,255,255,0.25)';
+            ctx.fill();
+
+            ctx.restore();
+        }
+    }
+
+    class PowerUp {
+        constructor() {
+            this.radius = Math.max(9, state.width * 0.022);
+            this.x = Math.random() * (state.width - this.radius * 2) + this.radius;
+            this.y = -this.radius;
+            this.speed = 2.6;
+            this.pulse = 0;
+        }
+
+        update() {
+            this.y += this.speed;
+            this.pulse += 0.12;
+        }
+
+        draw() {
+            const scale = 1 + Math.sin(this.pulse) * 0.22;
+            ctx.save();
+            ctx.shadowBlur = 14;
+            ctx.shadowColor = config.colors.powerUp;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.radius * scale, 0, Math.PI * 2);
+            ctx.fillStyle = config.colors.powerUp;
+            ctx.fill();
+            ctx.restore();
+
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.radius * 0.4, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(255,255,255,0.9)';
+            ctx.fill();
+        }
+    }
+
+    class Particle {
+        constructor(x, y, color) {
+            this.x = x;
+            this.y = y;
+            this.vx = (Math.random() - 0.5) * 6;
+            this.vy = (Math.random() - 0.5) * 6;
+            this.life = 1.0;
+            this.color = color;
+            this.size = Math.random() * 3 + 1;
+        }
+
+        update() {
+            this.x += this.vx;
+            this.y += this.vy;
+            this.vx *= 0.97;
+            this.vy *= 0.97;
+            this.life -= 0.025;
+        }
+
+        draw() {
+            ctx.globalAlpha = Math.max(this.life, 0);
+            ctx.fillStyle = this.color;
+            ctx.fillRect(this.x, this.y, this.size, this.size);
+            ctx.globalAlpha = 1;
+        }
+    }
+
+    class Star {
+        constructor() {
+            this.reset(true);
+        }
+
+        reset(init) {
+            this.x = Math.random() * state.width;
+            this.y = init ? Math.random() * state.height : -2;
+            this.size = Math.random() * 1.8 + 0.4;
+            this.alpha = Math.random() * 0.5 + 0.3;
+            this.speed = Math.random() * 0.6 + 0.15;
+        }
+
+        update() {
+            this.y += this.speed + (state.isPlaying && !state.isPaused ? 0.6 + state.level * 0.12 : 0);
+            if (this.y > state.height) this.reset(false);
+        }
+
+        draw() {
+            ctx.globalAlpha = this.alpha;
+            ctx.fillStyle = config.colors.star;
+            ctx.fillRect(this.x, this.y, this.size, this.size);
+            ctx.globalAlpha = 1;
+        }
+    }
+
+    /* ---------------- 初始化与适配 ---------------- */
+
+    function init() {
+        // 首次加载延迟100ms再判断方向，解决移动端初始视口不准问题
+        setTimeout(() => {
+            checkOrientation();
+            resize();
+        }, 100);
+
+        window.addEventListener('resize', handleResize);
+        window.addEventListener('orientationchange', () => {
+            // 横竖屏切换后延迟300ms再判断，等屏幕旋转动画完成
+            setTimeout(handleResize, 300);
+        });
+
+        canvas.addEventListener('touchstart', handleTouch, { passive: false });
+        canvas.addEventListener('touchmove', handleTouch, { passive: false });
+        canvas.addEventListener('mousedown', handleMouse);
+        canvas.addEventListener('mousemove', handleMouse);
+
+        startBtn.addEventListener('click', startGame);
+        restartBtn.addEventListener('click', startGame);
+        winRestartBtn.addEventListener('click', startGame);
+
+        highScoreEl.textContent = state.highScore;
+
+        for (let i = 0; i < 60; i++) stars.push(new Star());
+
+        renderLevelList();
+        syncLevelUI();
+
+        requestAnimationFrame(gameLoop);
+    }
+
+    // 开始页展示 10 关目标分数
+    function renderLevelList() {
+        levelList.innerHTML = '';
+        LEVELS.forEach((lv, i) => {
+            const chip = document.createElement('span');
+            chip.className = 'level-chip';
+            chip.textContent = `第${i + 1}关 ${lv.goal}分`;
+            levelList.appendChild(chip);
+        });
+    }
+
+    function handleResize() {
+        clearTimeout(window.__resizeTimer);
+        window.__resizeTimer = setTimeout(() => {
+            checkOrientation();
+            if (!state.isLandscape) {
+                resize();
+                rebuildStars();
+            }
+        }, 120);
+    }
+
+    function checkOrientation() {
+        // 横屏 -> 提示用户转回竖屏
+        const landscape = window.innerWidth > window.innerHeight;
+        state.isLandscape = landscape;
+        landscapeWarning.style.display = landscape ? 'flex' : 'none';
+    }
+
+    function resize() {
+        // 兼容不同浏览器的视口高度
+        const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
+        const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+
+        // 兜底：如果容器尺寸为0，直接用视口尺寸
+        state.width = container.clientWidth || viewportWidth;
+        state.height = container.clientHeight || viewportHeight;
+
+        // DPR 适配，最高2.5倍避免渲染压力过大
+        const currentDpr = Math.min(window.devicePixelRatio || 1, 2.5);
+        canvas.width = Math.round(state.width * currentDpr);
+        canvas.height = Math.round(state.height * currentDpr);
+        ctx.setTransform(currentDpr, 0, 0, currentDpr, 0, 0);
+
+        if (player) {
+            player.x = Math.min(player.x, state.width - player.radius);
+            player.y = Math.min(player.y, state.height - player.radius);
+            player.targetX = player.x;
+            player.targetY = player.y;
+        }
+    }
+
+    function rebuildStars() {
+        stars = [];
+        for (let i = 0; i < 60; i++) stars.push(new Star());
+    }
+
+    /* ---------------- 关卡 UI 与流程 ---------------- */
+
+    // 同步关卡数字、目标分、进度条
+    function syncLevelUI() {
+        levelEl.textContent = `第 ${state.level} 关`;
+        goalEl.textContent = curLevel.goal;
+
+        const prevGoal = state.level > 1 ? LEVELS[state.level - 2].goal : 0;
+        const span = Math.max(curLevel.goal - prevGoal, 1);
+        const done = Math.max(state.score - prevGoal, 0);
+        const pct = Math.max(0, Math.min(100, (done / span) * 100));
+        progressFill.style.width = pct + '%';
+    }
+
+    // 切换到指定关卡（1 起）
+    function applyLevel(level) {
+        state.level = level;
+        curLevel = LEVELS[level - 1];
+        spawnRate = curLevel.spawnRate;
+        syncLevelUI();
+    }
+
+    function showToast(title, sub, duration) {
+        toastTitle.textContent = title;
+        toastSub.textContent = sub;
+        levelToast.classList.add('show');
+        clearTimeout(window.__toastTimer);
+        window.__toastTimer = setTimeout(() => {
+            levelToast.classList.remove('show');
+        }, duration);
+    }
+
+    // 判定是否过关
+    function checkLevelPass() {
+        if (state.isPaused) return;
+        if (state.score < curLevel.goal) return;
+
+        if (state.level >= TOTAL_LEVELS) {
+            // 第 10 关达标 -> 通关胜利
+            winGame();
+            return;
+        }
+
+        // 过关：暂停玩法，弹提示，1.5 秒后进入下一关
+        state.isPaused = true;
+        const nextLevel = state.level + 1;
+        showToast('恭喜过关！', `即将进入第 ${nextLevel} 关`, 1600);
+
+        setTimeout(() => {
+            applyLevel(nextLevel);
+            state.isPaused = false;
+            showToast(`第 ${state.level} 关`, `目标 ${curLevel.goal} 分`, 1100);
+        }, 1500);
+    }
+
+    function startGame() {
+        if (state.isLandscape) return;
+
+        state.isPlaying = true;
+        state.isPaused = false;
+        state.score = 0;
+        state.frames = 0;
+        scoreEl.textContent = '0';
+
+        gameOverScreen.classList.add('hidden');
+        winScreen.classList.add('hidden');
+        startScreen.classList.add('hidden');
+        levelToast.classList.remove('show');
+
+        obstacles = [];
+        particles = [];
+        powerUps = [];
+
+        applyLevel(1);
+
+        player = new Player(state.width / 2, state.height * 0.72);
+        player.targetX = player.x;
+        player.targetY = player.y;
+    }
+
+    function saveHighScore() {
+        if (state.score > state.highScore) {
+            state.highScore = state.score;
+            localStorage.setItem('starTrekStageHighScore', String(state.highScore));
+            highScoreEl.textContent = state.highScore;
+        }
+    }
+
+    function gameOver() {
+        state.isPlaying = false;
+        state.isPaused = false;
+        saveHighScore();
+
+        finalScoreEl.textContent = state.score;
+        overStageEl.textContent = `抵达第 ${state.level} 关`;
+        gameOverScreen.classList.remove('hidden');
+    }
+
+    function winGame() {
+        state.isPlaying = false;
+        state.isPaused = false;
+        saveHighScore();
+
+        winScoreEl.textContent = state.score;
+        winScreen.classList.remove('hidden');
+    }
+
+    function createExplosion(x, y, color, count) {
+        for (let i = 0; i < count; i++) particles.push(new Particle(x, y, color));
+    }
+
+    function checkCollision(a, b) {
+        const dx = a.x - b.x;
+        const dy = a.y - b.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        return dist < a.radius + b.radius;
+    }
+
+    /* ---------------- 输入处理 ---------------- */
+
+    function getPos(clientX, clientY) {
+        const rect = canvas.getBoundingClientRect();
+        return {
+            x: clientX - rect.left,
+            y: clientY - rect.top
+        };
+    }
+
+    function movePlayerTo(x, y) {
+        if (!player) return;
+        player.targetX = x;
+        player.targetY = y + config.followOffsetY;
+    }
+
+    function handleTouch(e) {
+        if (!state.isPlaying || state.isPaused || state.isLandscape) return;
+        e.preventDefault();
+        const touch = e.touches[0];
+        if (!touch) return;
+        const p = getPos(touch.clientX, touch.clientY);
+        movePlayerTo(p.x, p.y);
+    }
+
+    function handleMouse(e) {
+        if (!state.isPlaying || state.isPaused || state.isLandscape) return;
+        if (e.buttons === 0 && e.type === 'mousemove') return; // 鼠标需按住
+        const p = getPos(e.clientX, e.clientY);
+        movePlayerTo(p.x, p.y);
+    }
+
+    /* ---------------- 主循环 ---------------- */
+
+    function gameLoop() {
+        requestAnimationFrame(gameLoop);
+
+        ctx.clearRect(0, 0, state.width, state.height);
+
+        // 不管横屏竖屏都渲染背景星星，避免白屏
+        stars.forEach(s => { s.update(); s.draw(); });
+
+        // 横屏时只显示提示，不运行游戏逻辑
+        if (state.isLandscape) return;
+
+        // 过关提示期间仍绘制场景，但冻结玩法
+        if (state.isPlaying && !state.isPaused) {
+            state.frames++;
+
+            // 生成陨石（按当前关卡密度，可能同批生成多个）
+            if (state.frames % spawnRate === 0) {
+                for (let b = 0; b < curLevel.batch; b++) {
+                    obstacles.push(new Obstacle());
+                }
+            }
+
+            // 生成能量球
+            if (state.frames % 160 === 0 && Math.random() < config.powerUpChance) {
+                powerUps.push(new PowerUp());
+            }
+
+            // 玩家
+            player.update();
+
+            // 陨石
+            for (let i = obstacles.length - 1; i >= 0; i--) {
+                const obs = obstacles[i];
+                obs.update();
+
+                if (checkCollision(player, obs)) {
+                    createExplosion(player.x, player.y, config.colors.player, 26);
+                    player = null;
+                    gameOver();
+                    break;
+                }
+
+                if (obs.y - obs.radius > state.height) {
+                    obstacles.splice(i, 1);
+                    state.score += 10;
+                    scoreEl.textContent = state.score;
+                    syncLevelUI();
+                    checkLevelPass();
+                    if (!state.isPlaying || state.isPaused) break;
+                }
+            }
+
+            // 能量球（玩家可能已在碰撞中置空）
+            if (player) {
+                for (let i = powerUps.length - 1; i >= 0; i--) {
+                    const pup = powerUps[i];
+                    pup.update();
+
+                    if (checkCollision(player, pup)) {
+                        state.score += 50;
+                        scoreEl.textContent = state.score;
+                        createExplosion(pup.x, pup.y, config.colors.powerUp, 16);
+                        powerUps.splice(i, 1);
+                        syncLevelUI();
+                        checkLevelPass();
+                        if (!state.isPlaying || state.isPaused) break;
+                    } else if (pup.y - pup.radius > state.height) {
+                        powerUps.splice(i, 1);
+                    }
+                }
+            } else {
+                powerUps = [];
+            }
+        }
+
+        // 绘制层（冻结时也保留画面）
+        if (state.isPlaying) {
+            obstacles.forEach(o => o.draw());
+            powerUps.forEach(p => p.draw());
+            if (player) player.draw();
+        }
+
+        // 粒子（结算后继续播放完毕）
+        for (let i = particles.length - 1; i >= 0; i--) {
+            const p = particles[i];
+            p.update();
+            p.draw();
+            if (p.life <= 0) particles.splice(i, 1);
+        }
+    }
+
+    // 启动
+    init();
+</script>
+</body>
+</html>
